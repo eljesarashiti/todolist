@@ -1,101 +1,368 @@
-import Image from "next/image";
+"use client";
+
+import { useStore } from "@/lib/store";
+import { trpc } from "@/lib/trpc";
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { FaUser, FaHome, FaLaptop, FaSun, FaMoon } from 'react-icons/fa';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const { tasks, setTasks, isAuthenticated, logout } = useStore();
+  const router = useRouter();
+  const [filter, setFilter] = useState<string>('All');
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState<string>('');
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false); 
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  useEffect(() => {
+    const storedDarkMode = localStorage.getItem('darkMode') === 'true';
+    setIsDarkMode(storedDarkMode);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('darkMode', isDarkMode.toString());
+  }, [isDarkMode]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [isAuthenticated, router]);
+
+  useEffect(() => {
+    document.body.classList.toggle('dark', isDarkMode);
+    localStorage.setItem('darkMode', isDarkMode.toString());
+  }, [isDarkMode]);
+
+  const { refetch, error, isLoading } = trpc.task.getAll.useQuery(undefined, {
+    onSuccess: (data) => {
+      setTasks(data);
+    },
+    enabled: isAuthenticated,
+  });
+
+  const createTask = trpc.task.create.useMutation({ onSuccess: () => refetch() });
+  const updateTask = trpc.task.update.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (err) => console.error('Update error:', err),
+  });
+  const deleteTask = trpc.task.delete.useMutation({ onSuccess: () => refetch() });
+  const deleteCompleted = trpc.task.deleteCompleted.useMutation({ onSuccess: () => refetch() });
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const title = formData.get("title") as string;
+    const description = formData.get("description") as string;
+    const priority = formData.get("priority") as string;
+    const dueDate = formData.get("dueDate") as string;
+    const category = formData.get("category") as string;
+    
+    createTask.mutate({ 
+      title, 
+      description, 
+      priority, 
+      dueDate: dueDate || undefined,
+      category,
+    });
+    e.currentTarget.reset();
+  };
+
+  const handleTaskToggle = (task: typeof tasks[0]) => {
+    updateTask.mutate({ 
+      ...task, 
+      completed: !task.completed,
+      dueDate: task.dueDate || undefined,
+    });
+  };
+
+  const handleEditStart = (task: typeof tasks[0]) => {
+    setEditingTaskId(task.id);
+    setEditTitle(task.title);
+  };
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditTitle(e.target.value);
+  };
+
+  const handleEditSubmit = (task: typeof tasks[0]) => {
+    if (editTitle.trim()) {
+      updateTask.mutate({ ...task, title: editTitle });
+    }
+    setEditingTaskId(null);
+  };
+
+  const handleEditCancel = () => {
+    setEditingTaskId(null);
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
+  const handleClearCompleted = () => {
+    deleteCompleted.mutate();
+  };
+
+  const toggleDarkMode = () => {
+    setIsDarkMode((prev) => !prev);
+  };
+
+  const getCategoryIcon = (category: string | undefined) => {
+    switch (category?.toLowerCase()) {
+      case 'personal':
+        return <FaUser className="category-icon personal" />;
+      case 'home':
+        return <FaHome className="category-icon home" />;
+      case 'work':
+        return <FaLaptop className="category-icon work" />;
+      default:
+        return <FaUser className="category-icon personal" />;
+    }
+  };
+
+  const formatDueDate = (dueDate: string) => {
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    const taskDate = new Date(dueDate);
+    
+    today.setHours(0, 0, 0, 0);
+    tomorrow.setHours(0, 0, 0, 0);
+    taskDate.setHours(0, 0, 0, 0);
+
+    if (taskDate.getTime() === today.getTime()) {
+      return 'Today';
+    } else if (taskDate.getTime() === tomorrow.getTime()) {
+      return 'Tomorrow';
+    } else {
+      return taskDate.toLocaleDateString();
+    }
+  };
+
+  const isOverdue = (dueDate: string) => {
+    const today = new Date();
+    const taskDate = new Date(dueDate);
+    today.setHours(0, 0, 0, 0);
+    taskDate.setHours(0, 0, 0, 0);
+    return taskDate.getTime() < today.getTime();
+  };
+
+  if (!isAuthenticated) {
+    return <div className="loading">Redirecting to login...</div>;
+  }
+
+  if (isLoading) {
+    return <div className="loading">Loading tasks...</div>;
+  }
+
+  if (error) {
+    return <div className="error-state">Error loading tasks: {error.message}</div>;
+  }
+
+  const filteredActiveTasks = tasks
+    .filter((task) => !task.completed)
+    .filter((task) => filter === 'All' || task.category === filter)
+    .sort((a, b) => {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    });
+  const completedTasks = tasks.filter((task) => task.completed);
+
+  return (
+    <div className="todo-container">
+      <div className="todo-content">
+        <div className="todo-header">
+          <h1>To-Do List</h1>
+          <div className="header-buttons">
+            <button className="theme-toggle-btn" onClick={toggleDarkMode}>
+              {isDarkMode ? <FaSun /> : <FaMoon />}
+            </button>
+            <button className="logout-btn" onClick={handleLogout}>Logout</button>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+        <form onSubmit={handleSubmit} className="todo-form">
+          <input name="title" placeholder="Task Title" required />
+          <input name="description" placeholder="Description (optional)" />
+          <select name="priority" defaultValue="Medium" className="priority-select">
+            <option value="Low">Low</option>
+            <option value="Medium">Medium</option>
+            <option value="High">High</option>
+          </select>
+          <input
+            type="date"
+            name="dueDate"
+            className="due-date-input"
+            min={new Date().toISOString().split('T')[0]}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <select name="category" defaultValue="Personal" className="category-select">
+            <option value="Personal">Personal</option>
+            <option value="Home">Home</option>
+            <option value="Work">Work</option>
+          </select>
+          <button type="submit" disabled={createTask.isLoading} className="add-task-btn">
+            {createTask.isLoading ? 'Adding...' : 'Add Task'}
+          </button>            
+        </form>
+        <div className="todo-actions">
+          <div className="filter-buttons">
+            <button
+              className={`filter-btn ${filter === 'All' ? 'active' : ''}`}
+              onClick={() => setFilter('All')}
+            >
+              All
+            </button>
+            <button
+              className={`filter-btn ${filter === 'Personal' ? 'active' : ''}`}
+              onClick={() => setFilter('Personal')}
+            >
+              Personal
+            </button>
+            <button
+              className={`filter-btn ${filter === 'Home' ? 'active' : ''}`}
+              onClick={() => setFilter('Home')}
+            >
+              Home
+            </button>
+            <button
+              className={`filter-btn ${filter === 'Work' ? 'active' : ''}`}
+              onClick={() => setFilter('Work')}
+            >
+              Work
+            </button>
+            <button className="clear-completed-btn" onClick={handleClearCompleted}>
+            Clear Completed
+          </button>
+          </div>
+        </div>
+        <h2 className="section-title">Active Tasks ({filteredActiveTasks.length})</h2>
+        {filteredActiveTasks.length === 0 ? (
+          <p className="no-tasks">No active tasks</p>
+        ) : (
+          <ul className="todo-list">
+            {filteredActiveTasks.map((task) => (
+              <li key={task.id} className={`todo-item priority-${task.priority?.toLowerCase() || 'medium'}`}>
+                <input
+                  type="checkbox"
+                  checked={task.completed}
+                  onChange={() => handleTaskToggle(task)}
+                  disabled={updateTask.isLoading}
+                />
+                <div className="task-text">
+                  {editingTaskId === task.id ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleEditSubmit(task);
+                      }}
+                      className="edit-form"
+                    >
+                      <input
+                        value={editTitle}
+                        onChange={handleEditChange}
+                        onBlur={() => handleEditSubmit(task)}
+                        autoFocus
+                        className="edit-input"
+                      />
+                      <button type="button" onClick={handleEditCancel} className="cancel-edit-btn">
+                        Cancel
+                      </button>
+                    </form>
+                  ) : (
+                    <span
+                      className={`title ${task.completed ? 'completed' : ''}`}
+                      onClick={() => handleEditStart(task)}
+                    >
+                      {task.title}
+                    </span>
+                  )}
+                  {task.description && <p className="description">{task.description}</p>}
+                  <div className="task-meta">
+                    <span className={`priority-icon priority-${task.priority?.toLowerCase() || 'medium'}`}></span>
+                    {task.dueDate && (
+                      <span className={`due-date ${isOverdue(task.dueDate) ? 'overdue' : ''}`}>
+                       {formatDueDate(task.dueDate)}
+                      </span>
+                    )}
+                    <div className={`category-wrapper ${task.category?.toLowerCase() || 'personal'}`}>
+                      {getCategoryIcon(task.category ?? '')}
+                      <span className="category-label">{task.category || 'Personal'}</span>
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => deleteTask.mutate(task.id)} className="delete-btn">Delete</button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <h2 className="section-title">Completed Tasks ({completedTasks.length})</h2>
+        {completedTasks.length === 0 ? (
+          <p className="no-tasks">No completed tasks</p>
+        ) : (
+          <ul className="todo-list completed-list">
+            {completedTasks.map((task) => (
+              <li key={task.id} className={`todo-item priority-${task.priority?.toLowerCase() || 'medium'}`}>
+                <input
+                  type="checkbox"
+                  checked={task.completed}
+                  onChange={() => handleTaskToggle(task)}
+                  disabled={updateTask.isLoading}
+                />
+                <div className="task-text">
+                  {editingTaskId === task.id ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleEditSubmit(task);
+                      }}
+                      className="edit-form"
+                    >
+                      <input
+                        value={editTitle}
+                        onChange={handleEditChange}
+                        onBlur={() => handleEditSubmit(task)}
+                        autoFocus
+                        className="edit-input"
+                      />
+                      <button type="button" onClick={handleEditCancel} className="cancel-edit-btn">
+                        Cancel
+                      </button>
+                    </form>
+                  ) : (
+                    <span
+                      className={`title ${task.completed ? 'completed' : ''}`}
+                      onClick={() => handleEditStart(task)}
+                    >
+                      {task.title}
+                    </span>
+                  )}
+                  {task.description && <p className="description">{task.description}</p>}
+                  <div className="task-meta">
+                    <span className={`priority-icon priority-${task.priority?.toLowerCase() || 'medium'}`}></span>
+                    {task.dueDate && (
+                      <span className="due-date">
+                        {formatDueDate(task.dueDate)}
+                      </span>
+                    )}
+                    <div className={`category-wrapper ${task.category?.toLowerCase() || 'personal'}`}>
+                      {getCategoryIcon(task.category ?? '')}
+                      <span className="category-label">{task.category || 'Personal'}</span>
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => deleteTask.mutate(task.id)} className="delete-btn">Delete</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
